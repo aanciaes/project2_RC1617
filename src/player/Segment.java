@@ -16,6 +16,8 @@ public class Segment {
     private final int offset;
     private final int duration;
     
+    private byte [] data;
+    
     public Segment (String quality, int number, int offset, int duration) {
         this.quality=quality;
         this.number=number;
@@ -37,5 +39,13 @@ public class Segment {
 
     public int getDuration() {
         return duration;
+    }
+
+    public void addData(byte[] data) {
+        this.data=data;
+    }
+    
+    public byte [] getData () {
+        return this.data;
     }
 }

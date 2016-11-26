@@ -27,194 +27,198 @@ import utils.HTTPUtilities;
 import player.Utils;
 
 public class JavaFXMediaPlayer extends Application implements Player {
-	private static final String URL_TEMPLATE = "http://localhost:%d/index.m3u8";
-	private static final int RECENT_SEGMENTS_SIZE = 20;
 
-	private Stage stage;
-	private HttpServer server;
-	private MediaView mediaView;
-	private MediaPlayer mediaPlayer;
-	volatile private byte[] indexData;
-	private static SynchronousQueue<Player> instance;
-	private BlockingQueue<byte[]> queue = new ArrayBlockingQueue<>(2);
-	private Label stats1 = new Label(), stats2 = new Label();
+    private static final String URL_TEMPLATE = "http://localhost:%d/index.m3u8";
+    private static final int RECENT_SEGMENTS_SIZE = 20;
 
-	private double q_Sums = 0, q_Samples = 0;
-	private Deque<Integer> recentSegments = new ArrayDeque<>();
+    private Stage stage;
+    private HttpServer server;
+    private MediaView mediaView;
+    private MediaPlayer mediaPlayer;
+    volatile private byte[] indexData;
+    private static SynchronousQueue<Player> instance;
+    private BlockingQueue<byte[]> queue = new ArrayBlockingQueue<>(2);
+    private Label stats1 = new Label(), stats2 = new Label();
 
-	@Override
-	public void decode(byte[] data) {
-		if (indexData == null)
-			indexData = data;
-		else {
-			Utils.putInto(queue, data);
+    private double q_Sums = 0, q_Samples = 0;
+    private Deque<Integer> recentSegments = new ArrayDeque<>();
 
-			Platform.runLater(() -> {
-				int quality = ByteBuffer.wrap(data, data.length - Integer.BYTES, Integer.BYTES).getInt();
-				recentSegments.addFirst(quality);
-				while (recentSegments.size() > RECENT_SEGMENTS_SIZE)
-					recentSegments.removeLast();
+    @Override
+    public void decode(byte[] data) {
+        if (indexData == null) {
+            indexData = data;
+        } else {
+            Utils.putInto(queue, data);
 
-				q_Sums += quality;
-				q_Samples += 1;
-				double mean = q_Sums / q_Samples;
-				stats1.setText(String.format("avg: %d kbps", (int) mean));
-				stats2.setText(String.format("\n\n%s", recentSegments));
-			});
-		}
-	}
+            Platform.runLater(() -> {
+                int quality = ByteBuffer.wrap(data, data.length - Integer.BYTES, Integer.BYTES).getInt();
+                recentSegments.addFirst(quality);
+                while (recentSegments.size() > RECENT_SEGMENTS_SIZE) {
+                    recentSegments.removeLast();
+                }
+                   
+                q_Sums += quality;
+                q_Samples += 1;
+                double mean = q_Sums / q_Samples;
+                stats1.setText(String.format("avg: %d kbps", (int) mean));
+                stats2.setText(String.format("\n\n%s", recentSegments));
+            });
+        }
+    }
 
-	@Override
-	public Player setSize(int width, int height) {
-		stage.setWidth(width);
-		stage.setHeight(height);
-		return this;
-	}
+    @Override
+    public Player setSize(int width, int height) {
+        stage.setWidth(width);
+        stage.setHeight(height);
+        return this;
+    }
 
-	@Override
-	public Player mute(boolean val) {
-		Utils.newThread(true, () -> {
-			mediaPlayer.setMute(val);
-		}).start();
-		return this;
-	}
+    @Override
+    public Player mute(boolean val) {
+        Utils.newThread(true, () -> {
+            mediaPlayer.setMute(val);
+        }).start();
+        return this;
+    }
 
-	public static Player getInstance() {
-		if (instance == null) {
-			instance = new SynchronousQueue<>();
-			Utils.newThread(true, () -> {
-				launch(new String[] {});
-			}).start();
-		}
-		return Utils.takeFrom(instance);
-	}
+    public static Player getInstance() {
+        if (instance == null) {
+            instance = new SynchronousQueue<>();
+            Utils.newThread(true, () -> {
+                launch(new String[]{});
+            }).start();
+        }
+        return Utils.takeFrom(instance);
+    }
 
-	@Override
-	public void start(Stage primaryStage) throws Exception {
-		stage = primaryStage;
+    @Override
+    public void start(Stage primaryStage) throws Exception {
+        stage = primaryStage;
 
-		server = new HttpServer();
+        server = new HttpServer();
 
-		primaryStage.setOnCloseRequest(h -> {
-			System.err.println("Window closed by user...");
-			System.exit(0);
-		});
+        primaryStage.setOnCloseRequest(h -> {
+            System.err.println("Window closed by user...");
+            System.exit(0);
+        });
 
-		server.start();
+        server.start();
 
-		Group root = new Group();
+        Group root = new Group();
 
-		Scene scene = new Scene(root, 0, 0);
+        Scene scene = new Scene(root, 0, 0);
 
-		primaryStage.setTitle("MyDash Player");
+        primaryStage.setTitle("MyDash Player");
 
-		// create media player, pointing to the internal http server
-		Media media = new Media(String.format(URL_TEMPLATE, server.localPort()));
+        // create media player, pointing to the internal http server
+        Media media = new Media(String.format(URL_TEMPLATE, server.localPort()));
 
-		mediaPlayer = new MediaPlayer(media);
-		mediaPlayer.setAutoPlay(true);
+        mediaPlayer = new MediaPlayer(media);
+        mediaPlayer.setAutoPlay(true);
 
-		MediaControl mediaControl = new MediaControl(mediaPlayer, scene);
-		scene.setRoot(mediaControl);
+        MediaControl mediaControl = new MediaControl(mediaPlayer, scene);
+        scene.setRoot(mediaControl);
 
-		primaryStage.setScene(scene);
-		primaryStage.show();
+        primaryStage.setScene(scene);
+        primaryStage.show();
 
-		instance.put(JavaFXMediaPlayer.this);
+        instance.put(JavaFXMediaPlayer.this);
 
-		// Instance is now ready...
-	}
+        // Instance is now ready...
+    }
 
-	class MediaControl extends BorderPane {
-		public MediaControl(final MediaPlayer mp, Scene scene) {
-			setStyle("-fx-background-color: black;");
-			mediaView = new MediaView(mp);
-			mediaView.autosize();
-			mediaView.setFitHeight(0);
+    class MediaControl extends BorderPane {
 
-			Pane mvPane = new Pane() {
-			};
-			mvPane.getChildren().add(mediaView);
+        public MediaControl(final MediaPlayer mp, Scene scene) {
+            setStyle("-fx-background-color: black;");
+            mediaView = new MediaView(mp);
+            mediaView.autosize();
+            mediaView.setFitHeight(0);
 
-			stats1.setStyle("-fx-text-fill: yellow;-fx-font-size: 12pt;");
-			stats2.setStyle("-fx-text-fill: green;-fx-font-size: 8pt;");
+            Pane mvPane = new Pane() {
+            };
+            mvPane.getChildren().add(mediaView);
 
-			mvPane.getChildren().add(stats1);
-			mvPane.getChildren().add(stats2);
-			setCenter(mvPane);
-			mvPane.autosize();
-			scene.widthProperty().addListener((_1, _2, width) -> {
-				mediaView.setFitWidth(width.doubleValue());
-			});
+            stats1.setStyle("-fx-text-fill: yellow;-fx-font-size: 12pt;");
+            stats2.setStyle("-fx-text-fill: green;-fx-font-size: 8pt;");
 
-			scene.heightProperty().addListener((_1, _2, height) -> {
-				mediaView.setFitHeight(height.doubleValue());
-			});
-		}
-	}
+            mvPane.getChildren().add(stats1);
+            mvPane.getChildren().add(stats2);
+            setCenter(mvPane);
+            mvPane.autosize();
+            scene.widthProperty().addListener((_1, _2, width) -> {
+                mediaView.setFitWidth(width.doubleValue());
+            });
 
-	class HttpServer extends Thread {
+            scene.heightProperty().addListener((_1, _2, height) -> {
+                mediaView.setFitHeight(height.doubleValue());
+            });
+        }
+    }
 
-		final ServerSocket ss;
+    class HttpServer extends Thread {
 
-		HttpServer() throws IOException {
-			super.setDaemon(true);
-			ss = new ServerSocket(0);
-		}
+        final ServerSocket ss;
 
-		int localPort() {
-			return ss.getLocalPort();
-		}
+        HttpServer() throws IOException {
+            super.setDaemon(true);
+            ss = new ServerSocket(0);
+        }
 
-		public void run() {
-			try {
-				for (;;) {
-					Socket cs = ss.accept();
-					handleRequest(cs);
-				}
-			} catch (Exception x) {
-				x.printStackTrace();
-			}
-		}
-	}
+        int localPort() {
+            return ss.getLocalPort();
+        }
 
-	@SuppressWarnings("unused")
-	void handleRequest(Socket cs) {
-		try {
-			InputStream is = cs.getInputStream();
-			OutputStream os = cs.getOutputStream();
+        public void run() {
+            try {
+                for (;;) {
+                    Socket cs = ss.accept();
+                    handleRequest(cs);
+                }
+            } catch (Exception x) {
+                x.printStackTrace();
+            }
+        }
+    }
 
-			String request = HTTPUtilities.readLine(is), header;
-			// System.err.println(request);
-			String[] parts = HTTPUtilities.parseHttpRequest(request);
+    @SuppressWarnings("unused")
+    void handleRequest(Socket cs) {
+        try {
+            InputStream is = cs.getInputStream();
+            OutputStream os = cs.getOutputStream();
 
-			while ((header = HTTPUtilities.readLine(is)).length() > 0) {
-				// System.err.println(header);
-			}
+            String request = HTTPUtilities.readLine(is), header;
+            //System.err.println(request);
+            String[] parts = HTTPUtilities.parseHttpRequest(request);
 
-			String action = parts[0];
-			String filename = parts[1];
+            while ((header = HTTPUtilities.readLine(is)).length() > 0) {
+                //System.err.println(header);
+            }
 
-			os.write("HTTP/1.0 200 OK\r\n".getBytes());
-			if (filename.endsWith(".m3u8")) {
-				os.write("Content-Type: application/x-mpegURL\r\n\r\n".getBytes());
-				if (action.equals("GET")) {
-					while (indexData == null)
-						Thread.sleep(10);
+            String action = parts[0];
+            String filename = parts[1];
 
-					os.write(indexData);
-				}
-			} else {
-				byte[] data = queue.take();
-				int length = data.length - Integer.BYTES;
-				os.write(String.format("Content-Length: %d\r\nContent-Type: video/MP2T\r\n\r\n", length).getBytes());
-				os.write(data, 0, length);
-			}
-			os.close();
-			cs.close();
-		} catch (Exception x) {
-			x.printStackTrace();
-		}
-	}
+            os.write("HTTP/1.0 200 OK\r\n".getBytes());
+            if (filename.endsWith(".m3u8")) {
+                os.write("Content-Type: application/x-mpegURL\r\n\r\n".getBytes());
+                if (action.equals("GET")) {
+                    while (indexData == null) {
+                        Thread.sleep(10);
+                    }
+
+                    os.write(indexData);
+                }
+            } else {
+                byte[] data = queue.take();
+                int length = data.length - Integer.BYTES;
+                os.write(String.format("Content-Length: %d\r\nContent-Type: video/MP2T\r\n\r\n", length).getBytes());
+                os.write(data, 0, length);
+            }
+            os.close();
+            cs.close();
+        } catch (Exception x) {
+            x.printStackTrace();
+        }
+    }
 
 }
