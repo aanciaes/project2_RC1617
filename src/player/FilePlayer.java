@@ -8,6 +8,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.*;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,148 +19,201 @@ import utils.HTTPUtilities;
 
 public class FilePlayer {
 
-	public static void main(String[] args) throws Exception {
-		
-		Map<String, List<Segment>> dataMap = new HashMap<>();
-		List<Segment> buffer = new ArrayList<>();
-		Queue<Segment> toPlay = new ConcurrentLinkedDeque<Segment>();
-		Queue<Long> times = new ConcurrentLinkedDeque<Long>();
-			
-		Thread playerIng  = new Thread(new Runnable(){
-			public void run(){
-			
-				Player player = JavaFXMediaPlayer.getInstance().setSize(800,500).mute(false);
-			
-				while (!toPlay.isEmpty()) {
-				
-					Segment tmp = toPlay.poll();
-					System.err.println("Data: " + tmp.getNumber() + " = " + tmp.getData());
-					player.decode(tmp.getData());
-					
-					try {
-						Thread.sleep(tmp.getDuration());
-					} catch (InterruptedException e) {
-						
-					}
-				}
-			}
-		});
+    public static void main(String[] args) throws Exception {
 
-		readIndex(dataMap);
+        Map<String, List<Segment>> dataMap = new HashMap<>();
+        List<Segment> buffer = new ArrayList<>();
+        Queue<Segment> toPlay = new ConcurrentLinkedDeque<>();
 
-		String urlIndex = "http://localhost:8080";
-		URL url = new URL(urlIndex);
+        List<Double> averageSpeeds = new ArrayList<>();
 
-		InetAddress serverAddr = InetAddress.getByName(url.getHost());
+        double averageSpeed = 0;
 
-		List<Segment> lst = dataMap.get("500.ts");
-		int i = 0;
-		boolean check = false;
+        Thread playerIng = new Thread(new Runnable() {
+            public void run() {
 
-		while (i < lst.size()-1) {
-		
-			Socket sock = new Socket(serverAddr, 8080);
+                Player player = JavaFXMediaPlayer.getInstance().setSize(800, 500).mute(false);
 
-			OutputStream toServer = sock.getOutputStream();
-			InputStream fromServer = sock.getInputStream();
+                while (!toPlay.isEmpty()) {
 
-			DataInputStream dis = new DataInputStream(fromServer);
-			System.out.println("Connected to server");
+                    Segment tmp = toPlay.poll();
+                    System.err.println("Data: " + tmp.getNumber() + " = " + tmp.getData());
 
-			Segment seg = lst.get(i);
+                    player.decode(tmp.getData());
 
-			int initialRange = seg.getOffset();
-			int finalRange = (lst.get(i + 1).getOffset()-1);
+                    try {
+                        Thread.sleep(tmp.getDuration());
+                    } catch (InterruptedException e) {
 
-			String request = String.format("GET %s HTTP/1.0\r\n" + "User-Agent: X-RC2016\r\n"
-					+ "Range: bytes=%d-%d\r\n\r\n", "/finding-dory/500.ts", initialRange, finalRange);
+                    }
+                    if (toPlay.isEmpty()) {
+                        System.err.println("Buffering...");
+                        try {
+                            Thread.sleep(3000);
+                        } catch (InterruptedException e) {
 
-			toServer.write(request.getBytes());
-		    long  sTime = System.currentTimeMillis();
-			System.out.println("Sent request: " + request);
-			String answerLine = HTTPUtilities.readLine(fromServer);
-		    long  rTime = System.currentTimeMillis();
-		    
-		     long rttTime = rTime - sTime;
+                        }
 
-			System.out.println("Got answer: " + answerLine);
+                    }
+                }
+            }
+        });
 
-			while (!answerLine.equals("")) {
-				answerLine = HTTPUtilities.readLine(fromServer);
-				System.out.println(answerLine);
-			}
+        readIndex(dataMap);
+        int [] indexSegment = new int[dataMap.size()];
 
+        fillIndex(dataMap, indexSegment);
 
-			try {
-				dis.readUTF(); 
-				dis.readLong();
-				dis.readLong();
-				byte[] data = new byte[dis.readInt()];
+        String urlIndex = "http://localhost:8080";
+        URL url = new URL(urlIndex);
 
-				dis.readFully(data);
+        InetAddress serverAddr = InetAddress.getByName(url.getHost());
 
-				seg.addData(data);
+        int k = 0;
+        List<Segment> lst = dataMap.get(indexSegment[k]+".ts");
+        int i = 0;
+        boolean check = false;
 
-				buffer.add(seg);
-				toPlay.add(seg);
-				times.add(rttTime);
-				
-				if(toPlay.size() == 5 && !check){
-					playerIng.start();
-					check = true;
-				}
-			
-				dis.close();
-				sock.close();
-			} catch (EOFException e) {
-			}
-		
-			i++;
-		}
+        while (i < lst.size() - 1) {
+            
+            if(averageSpeed+200 > indexSegment[k] && k< indexSegment.length){
+                k++;
+                lst = dataMap.get(indexSegment[k]+".ts");
+                
+            }
+            if(averageSpeed < indexSegment[k] && k>0){
+                k--;
+                 lst = dataMap.get(indexSegment[k]+".ts");
+            }
+            
+            
+            Socket sock = new Socket(serverAddr, 8080);
 
-	
-		
-	}
+            OutputStream toServer = sock.getOutputStream();
+            InputStream fromServer = sock.getInputStream();
 
-	private static void readIndex(Map<String, List<Segment>> dataMap) throws Exception {
-		String urlIndex = "http://localhost:8080";
-		URL url = new URL(urlIndex);
+            DataInputStream dis = new DataInputStream(fromServer);
+            System.out.println("Connected to server");
 
-		InetAddress serverAddr = InetAddress.getByName(url.getHost());
+            Segment seg = lst.get(i);
 
-		Socket sock = new Socket(serverAddr, 8080);
+            int initialRange = seg.getOffset();
+            int finalRange = (lst.get(i + 1).getOffset() - 1);
 
-		OutputStream toServer = sock.getOutputStream();
-		InputStream fromServer = sock.getInputStream();
-		System.out.println("Connected to server");
+            String request = String.format("GET %s HTTP/1.0\r\n" + "User-Agent: X-RC2016\r\n"
+                    + "Range: bytes=%d-%d\r\n\r\n", "/finding-dory/" + indexSegment[k]+".ts", initialRange, finalRange);
 
-		String request = String.format("GET %s HTTP/1.0\r\n" + "User-Agent: X-RC2016\r\n\r\n", "/finding-dory/index.dat");
+            toServer.write(request.getBytes());
+            long sTime = System.currentTimeMillis();
+            System.out.println("Sent request: " + request);
+            String answerLine = HTTPUtilities.readLine(fromServer);
 
-		toServer.write(request.getBytes());
-		System.out.println("Sent request: " + request);
-		String answerLine = HTTPUtilities.readLine(fromServer);
-		System.out.println("Got answer: " + answerLine);
+            System.out.println("Got answer: " + answerLine);
 
-		while (!answerLine.equals("")) {
-			answerLine = HTTPUtilities.readLine(fromServer);
-			System.out.println(answerLine);
-		}
+            while (!answerLine.equals("")) {
+                answerLine = HTTPUtilities.readLine(fromServer);
+                System.out.println(answerLine);
+            }
 
-		BufferedReader in = new BufferedReader(new InputStreamReader(fromServer));
-		String content = "";
+            try {
+                dis.readUTF();
+                dis.readLong();
+                dis.readLong();
+                byte[] data = new byte[dis.readInt()];
 
-		while ((content = in.readLine()) != null) {
-			if (!content.startsWith(";") && !content.equals("")) {
-				if (content.endsWith(".ts")) {
-					dataMap.put(content.trim(), new ArrayList());
-				} else {
-					String[] httpReplySegmented = content.split("\\s");
-					List lst = dataMap.get(httpReplySegmented[0]);
-					lst.add(new Segment(httpReplySegmented[0], Integer.parseInt(httpReplySegmented[1]),
-							Integer.parseInt(httpReplySegmented[2]), Integer.parseInt(httpReplySegmented[3])));
-					dataMap.put(httpReplySegmented[0], lst);
-				}
-			}
-		}
-	}
+                dis.readFully(data);
+                long rTime = System.currentTimeMillis();
+
+                double dataSize = ((finalRange - initialRange) / 1024) * 8;
+                averageSpeed = calcRTT(averageSpeeds, rTime, sTime, dataSize);
+                System.err.println("Average Download Speed: " + averageSpeed);
+
+                seg.addData(data);
+
+                buffer.add(seg);
+                toPlay.add(seg);
+
+                if (toPlay.size() == 5 && !check) {
+                    playerIng.start();
+                    check = true;
+                }
+
+                dis.close();
+                sock.close();
+            } catch (EOFException e) {
+            }
+
+            i++;
+        }
+
+    }
+
+    private static void readIndex(Map<String, List<Segment>> dataMap) throws Exception {
+        String urlIndex = "http://localhost:8080";
+        URL url = new URL(urlIndex);
+
+        InetAddress serverAddr = InetAddress.getByName(url.getHost());
+
+        Socket sock = new Socket(serverAddr, 8080);
+
+        OutputStream toServer = sock.getOutputStream();
+        InputStream fromServer = sock.getInputStream();
+        System.out.println("Connected to server");
+
+        String request = String.format("GET %s HTTP/1.0\r\n" + "User-Agent: X-RC2016\r\n\r\n", "/finding-dory/index.dat");
+
+        toServer.write(request.getBytes());
+        System.out.println("Sent request: " + request);
+        String answerLine = HTTPUtilities.readLine(fromServer);
+        System.out.println("Got answer: " + answerLine);
+
+        while (!answerLine.equals("")) {
+            answerLine = HTTPUtilities.readLine(fromServer);
+            System.out.println(answerLine);
+        }
+
+        BufferedReader in = new BufferedReader(new InputStreamReader(fromServer));
+        String content = "";
+
+        while ((content = in.readLine()) != null) {
+            if (!content.startsWith(";") && !content.equals("")) {
+                if (content.endsWith(".ts")) {
+                    dataMap.put(content.trim(), new ArrayList());
+                } else {
+                    String[] httpReplySegmented = content.split("\\s");
+                    List lst = dataMap.get(httpReplySegmented[0]);
+                    lst.add(new Segment(httpReplySegmented[0], Integer.parseInt(httpReplySegmented[1]),
+                            Integer.parseInt(httpReplySegmented[2]), Integer.parseInt(httpReplySegmented[3])));
+                    dataMap.put(httpReplySegmented[0], lst);
+                }
+            }
+        }
+    }
+
+    public static double calcRTT(List<Double> lst, double rTime, double sTime, double dataSize) {
+        double sum = 0;
+        double speed = dataSize / ((rTime - sTime) / 1000);
+
+        lst.add(speed);
+
+        if (lst.size() > 5) {
+            lst.remove(0);
+        }
+
+        for (Double l : lst) {
+            sum += l;
+        }
+
+        return sum / lst.size();
+    }
+
+    private static void fillIndex(Map<String, List<Segment>> dataMap, int[] indexSegment) {
+        int i = 0;
+        for (String s : dataMap.keySet()) {
+            indexSegment[i] = Integer.parseInt(s.split("\\.")[0]);
+            i++;
+        }
+        Arrays.sort(indexSegment);
+    }
+
 }
