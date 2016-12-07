@@ -3,6 +3,7 @@ package player;
 import java.io.BufferedReader;
 import java.io.DataInputStream;
 import java.io.EOFException;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -74,12 +75,12 @@ public class FilePlayer {
             double sTime = System.currentTimeMillis();
             System.out.println("Sent request: " + request);
             String answerLine = HTTPUtilities.readLine(fromServer);
-
             System.out.println("Got answer: " + answerLine);
 
-            while (!answerLine.equals("")) {
-                answerLine = HTTPUtilities.readLine(fromServer);
-                System.out.println(answerLine);
+            int httpCode = interpretHeaders(answerLine, fromServer);
+            if (httpCode != 206) {
+                System.err.println("Something went wrong. Http Error Code: " + httpCode);
+                System.exit(0);
             }
 
             try {
@@ -172,9 +173,10 @@ public class FilePlayer {
         String answerLine = HTTPUtilities.readLine(fromServer);
         System.out.println("Got answer: " + answerLine);
 
-        while (!answerLine.equals("")) {
-            answerLine = HTTPUtilities.readLine(fromServer);
-            System.out.println(answerLine);
+        int httpCode = interpretHeaders(answerLine, fromServer);
+        if (httpCode != 200) {
+            System.err.println("Something went wrong. Http Error Code: " + httpCode);
+            System.exit(0);
         }
 
         BufferedReader in = new BufferedReader(new InputStreamReader(fromServer));
@@ -230,6 +232,17 @@ public class FilePlayer {
             i++;
         }
         Arrays.sort(indexSegment);
+    }
+
+    private static int interpretHeaders(String answer, InputStream fromServer) throws IOException {
+        String[] header = HTTPUtilities.parseHttpRequest(answer);
+        int httpCode = Integer.parseInt(header[1]);
+
+        while (!answer.equals("")) {
+            answer = HTTPUtilities.readLine(fromServer);
+            System.out.println(answer);
+        }
+        return httpCode;
     }
 
     public static void main(String[] args) throws Exception {
